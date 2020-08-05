@@ -1,0 +1,189 @@
+val rdd = sc.textFile("product_reviews/Reviews.csv")
+
+val rdd1 = rdd.map(x => x.replaceAll("\"\"",""))
+
+rdd1.saveAsTextFile("product_reviews.csv")
+
+hadoop@vspark:~$ cd product_reviews.csv
+
+hadoop@vspark:~/product_reviews.csv$ cat part-00000 part-00001 part-00002 part-00003 part-00004 part-00005 part-00006 part-00007 part-00008 >../prod_reviews.csv
+
+----------------------------------------
+
+val df = spark.read.format("csv").option("header","true").option("sep",",").option("quoteAll","true").load("prod_reviews.csv")
+
+scala> df.printSchema()
+root
+ |-- Id: string (nullable = true)
+ |-- ProductId: string (nullable = true)
+ |-- UserId: string (nullable = true)
+ |-- ProfileName: string (nullable = true)
+ |-- HelpfulnessNumerator: string (nullable = true)
+ |-- HelpfulnessDenominator: string (nullable = true)
+ |-- Score: string (nullable = true)
+ |-- Time: string (nullable = true)
+ |-- Summary: string (nullable = true)
+ |-- Text: string (nullable = true)
+ 
+
+scala> df.select("Score","Text").show()
++-----+--------------------+
+|Score|                Text|
++-----+--------------------+
+|    5|I have bought sev...|
+|    1|Product arrived l...|
+|    4|This is a confect...|
+|    2|If you are lookin...|
+|    5|Great taffy at a ...|
+|    4|I got a wild hair...|
+|    5|This saltwater ta...|
+|    5|This taffy is so ...|
+|    5|Right now I'm mos...|
+|    5|This is a very he...|
+|    5|I don't know if i...|
+|    5|One of my boys ne...|
+|    1|My cats have been...|
+|    4|good flavor! thes...|
+|    5|The Strawberry Tw...|
+|    5|My daughter loves...|
+|    2|I love eating the...|
+|    5|I am very satisfi...|
+|    5|Twizzlers, Strawb...|
+|    5|Candy was deliver...|
++-----+--------------------+
+only showing top 20 rows
+
+scala> df.select("Score").count
+res4: Long = 568454
+
+
+scala> df.groupBy("Score").count.show
++-----+------+
+|Score| count|
++-----+------+
+|    3| 42640|
+| null|     2|
+|    5|363120|
+|    1| 52268|
+|    4| 80655|
+|    2| 29769|
++-----+------+
+
+scala> df.where("Score is not null").count
+res8: Long = 568452
+
+
+val rdd = df.where("Score is not null").select("Score","Text").rdd.map( x => Array(x(1).toString,x(0).toString))
+
+-- remove nonword characters (such as punctuation).
+val nonWordSplit = rdd.flatMap(x => x(0).split("""\W+""").map(_.toLowerCase))
+nonWordSplit.sample(true, 0.3, 42).take(100).mkString(",")
+nonWordSplit.distinct.count
+
+-- filter out numbers and tokens that are words mixed with numbers
+val regex = """[^0-9]*""".r
+val filterNumbers = nonWordSplit.filter(token => regex.pattern.matcher(token).matches)
+filterNumbers.distinct.sample(false, 0.3, 42).take(100).mkString("\n")
+filterNumbers.distinct.count
+
+-- list highest occurrence of words to get an idea which stop words to be removed
+val tokenCounts = filterNumbers.map(t => (t, 1)).reduceByKey(_ + _)
+val orderingDesc = Ordering.by[(String, Int), Int](_._2)
+tokenCounts.top(20)(orderingDesc).mkString("\n")
+
+-- remove stop words
+val stopwords = Set(
+ "the","a","an","of","or","in","for","by","on","but", "is", "not", "with", "as", "was", "if",
+ "they", "are", "this", "and", "it", "have", "from", "at", "my", "be", "that", "to"
+)
+val tokenCountsFilteredStopwords = tokenCounts.filter { case(k, v) => !stopwords.contains(k) }
+tokenCountsFilteredStopwords.top(20)(orderingDesc).mkString("\n")
+
+-- remove tokens with one-character length
+val tokenCountsFilteredSize = tokenCountsFilteredStopwords.filter { case (k, v) => k.size >= 2 }
+tokenCountsFilteredSize.top(20)(orderingDesc).mkString("\n")
+
+-- list least occurring terms in the corpus
+val orderingAsc = Ordering.by[(String, Int), Int](-_._2)
+tokenCountsFilteredSize.top(20)(orderingAsc).mkString("\n")
+
+-- remove terms with only one-occurrence
+val rareTokens = tokenCounts.filter{ case (k, v) => v < 2 }.map{ case (k, v) => k }.collect.toSet
+val tokenCountsFilteredAll = tokenCountsFilteredSize.filter { case (k, v) => !rareTokens.contains(k) }
+tokenCountsFilteredAll.top(20)(orderingAsc).mkString("\n")
+
+tokenCountsFilteredAll.count
+res24: Long = 64978
+
+def tokenize(line: String): Seq[String] = {
+ line.split("""\W+""")
+ .map(_.toLowerCase)
+ .filter(token => regex.pattern.matcher(token).matches)
+ .filterNot(token => stopwords.contains(token))
+ .filterNot(token => rareTokens.contains(token))
+ .filter(token => token.size >= 2)
+ .toSeq
+}
+
+rdd.flatMap(x => tokenize(x(0))).distinct.count
+res27: Long = 64978
+
+val tokens = rdd.map(x => tokenize(x(0)))
+
+---------------------------
+
+import org.apache.spark.mllib.linalg.{ SparseVector => SV }
+import org.apache.spark.mllib.feature.HashingTF
+import org.apache.spark.mllib.feature.IDF
+
+val dim = math.pow(2, 17).toInt
+val hashingTF = new HashingTF(dim)
+
+-- transform function of HashingTF maps each input document (that is, a sequence of tokens) to an MLlib Vector.
+val tf = hashingTF.transform(tokens)
+tf.cache
+
+-- compute the inverse document frequency for each term in the corpus
+-- by creating a new IDF instance and calling fit with our RDD of term frequency
+-- vectors as the input. We will then transform our term frequency vectors to TF-IDF
+-- vectors through the transform function of IDF:
+
+val idf = new IDF().fit(tf)
+val tfidf = idf.transform(tf)
+
+---------------------
+
+-- Intuitively, we might expect two documents to be more similar to each other if they
+-- share many terms. Conversely, we might expect two documents to be less similar
+-- if they each contain many terms that are different from each other. As we compute
+-- cosine similarity by computing a dot product of the two vectors and each vector
+-- is made up of the terms in each document, we can see that documents with a high
+-- overlap of terms will tend to have a higher cosine similarity.
+
+val keywords = sc.parallelize(Seq(Seq("diet","sugar","free","soda")))
+val tfkeywords = hashingTF.transform(keywords)
+val tfidfkeywords = idf.transform(tfkeywords)
+val keywordVector = tfidfkeywords.first.asInstanceOf[SV]
+
+import breeze.linalg._
+val keywordSV = new SparseVector(keywordVector.indices, keywordVector.values, keywordVector.size)
+
+val cosineSim = rdd.map( x => {
+   val tfaux = hashingTF.transform(tokenize(x(0)))
+   val tfidfaux = idf.transform(tfaux)
+   val auxVector = tfidfaux.asInstanceOf[SV]
+   val auxSV = new SparseVector(auxVector.indices, auxVector.values, auxVector.size)
+   val cosineSim = auxSV.dot(keywordSV) / ( norm(auxSV)*norm(keywordSV) )
+   (x(0),cosineSim)
+ })
+
+
+val orderingDescDocs = Ordering.by[(String, Double), Double](_._2)
+
+cosineSim.top(20)(orderingDescDocs).mkString("\n")
+res6: String =
+(This rootbeer is amazing. I love this soda. My husband loves this soda. My son loves this soda. If you are looking for a chemical-free diet soda, look no further. Seriously. This is a good soda.,0.6400003360444836)
+(Get that diet taste in a non diet soda........  enough said.<br />If you use the Soda Stream, buy the bag in a box brand name soda syrup.,0.630900846054178)
+(Get that diet taste in a non diet soda........  enough said.<br />If you use the Soda Stream, buy the bag in a box brand name soda syrup.,0.630900846054178)
+(Get that diet taste in a non diet soda........  enough said.<br />If you use the Soda Stream, buy the bag in a box brand name soda syrup.,0.630900846054178)
+(Get that diet taste in a non diet soda........  enough said.<br />If you use the Soda Strea...
