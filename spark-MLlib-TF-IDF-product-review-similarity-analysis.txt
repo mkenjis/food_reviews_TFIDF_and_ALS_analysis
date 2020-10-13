@@ -1,16 +1,16 @@
-val rdd = sc.textFile("product_reviews/Reviews.csv")
+val rdd = sc.textFile("food_reviews/Reviews.csv")
 
 val rdd1 = rdd.map(x => x.replaceAll("\"\"",""))
 
-rdd1.saveAsTextFile("product_reviews.csv")
+rdd1.saveAsTextFile("food_reviews.csv")
 
-hadoop@vspark:~$ cd product_reviews.csv
+hadoop@vspark:~$ cd food_reviews.csv
 
-hadoop@vspark:~/product_reviews.csv$ cat part-00000 part-00001 part-00002 part-00003 part-00004 part-00005 part-00006 part-00007 part-00008 >../prod_reviews.csv
+hadoop@vspark:~/food_reviews.csv$ cat part-00000 part-00001 part-00002 part-00003 part-00004 part-00005 part-00006 part-00007 part-00008 >../food_reviews.csv
 
 ----------------------------------------
 
-val df = spark.read.format("csv").option("header","true").option("sep",",").option("quoteAll","true").load("prod_reviews.csv")
+val df = spark.read.format("csv").option("header","true").option("sep",",").option("quoteAll","true").load("food_reviews.csv")
 
 scala> df.printSchema()
 root
