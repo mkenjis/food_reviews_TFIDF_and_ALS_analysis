@@ -1,7 +1,7 @@
 # food_reviews_similarity_analysis_using_TFIDF
 food reviews similarity analysis using TFIDF
-Source : Kaggle Dataset
-URL : https://www.kaggle.com/snap/amazon-fine-food-reviews
+- Source : Kaggle Dataset
+- URL : https://www.kaggle.com/snap/amazon-fine-food-reviews
 
 # Purpose: 
 - use TF-IDF data processing and feature extraction for relevant words
