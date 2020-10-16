@@ -1,0 +1,100 @@
+val rdd = sc.textFile("food_reviews/Reviews.csv")
+
+val rdd1 = rdd.map(x => x.replaceAll("\"\"",""))
+
+rdd1.saveAsTextFile("food_reviews.csv")
+
+hadoop@vspark:~$ cd food_reviews.csv
+
+hadoop@vspark:~/food_reviews.csv$ cat part-00000 part-00001 part-00002 part-00003 part-00004 part-00005 part-00006 part-00007 part-00008 >../food_reviews.csv
+
+----------------------------------------
+
+val df = spark.read.format("csv").option("header","true").option("quoteAll","true").load("food_reviews.csv")
+
+scala> df.printSchema()
+root
+ |-- Id: string (nullable = true)
+ |-- ProductId: string (nullable = true)
+ |-- UserId: string (nullable = true)
+ |-- ProfileName: string (nullable = true)
+ |-- HelpfulnessNumerator: string (nullable = true)
+ |-- HelpfulnessDenominator: string (nullable = true)
+ |-- Score: string (nullable = true)
+ |-- Time: string (nullable = true)
+ |-- Summary: string (nullable = true)
+ |-- Text: string (nullable = true)
+ 
+scala> df.select("ProductId","UserId","Score").show
++----------+--------------+-----+
+| ProductId|        UserId|Score|
++----------+--------------+-----+
+|B001E4KFG0|A3SGXH7AUHU8GW|    5|
+|B00813GRG4|A1D87F6ZCVE5NK|    1|
+|B000LQOCH0| ABXLMWJIXXAIN|    4|
+|B000UA0QIQ|A395BORC6FGVXV|    2|
+|B006K2ZZ7K|A1UQRSCLF8GW1T|    5|
+|B006K2ZZ7K| ADT0SRK1MGOEU|    4|
+|B006K2ZZ7K|A1SP2KVKFXXRU1|    5|
+|B006K2ZZ7K|A3JRGQVEQN31IQ|    5|
+|B000E7L2R4|A1MZYO9TZK0BBI|    5|
+|B00171APVA|A21BT40VZCCYT4|    5|
+|B0001PB9FE|A3HDKO7OW0QNK4|    5|
+|B0009XLVG0|A2725IB4YY9JEB|    5|
+|B0009XLVG0| A327PCT23YH90|    1|
+|B001GVISJM|A18ECVX2RJ7HUE|    4|
+|B001GVISJM|A2MUGFV2TDQ47K|    5|
+|B001GVISJM|A1CZX3CP8IKQIJ|    5|
+|B001GVISJM|A3KLWF6WQ5BNYO|    2|
+|B001GVISJM| AFKW14U97Z6QO|    5|
+|B001GVISJM|A2A9X58G2GTBLP|    5|
+|B001GVISJM|A3IV7CL2C13K2U|    5|
++----------+--------------+-----+
+only showing top 20 rows
+
+
+val rdd = df.where("Score is not null").select("ProductId","UserId","Score").rdd
+
+val rdd1 = rdd.map(x => x.toSeq).map(x => x.toArray)
+
+val prodCateg = rdd1.map(x => x(0)).distinct.zipWithIndex.collect.toMap
+
+val userCateg = rdd1.map(x => x(1)).distinct.zipWithIndex.collect.toMap
+
+import org.apache.spark.mllib.recommendation.Rating
+
+val ratings = rdd1.map(x => Rating(prodCateg(x(0).toString).toInt,userCateg(x(1).toString).toInt,x(2).toString.toInt))
+
+import org.apache.spark.mllib.recommendation.ALS
+
+val model = ALS.train(ratings, 50, 10, 0.01)
+
+scala> model.userFeatures.count
+res7: Long = 74258
+
+scala> model.productFeatures.count
+res8: Long = 256058
+
+scala> val predictedRating = model.predict(789, 123)
+predictedRating: Double = 1.193966441412471
+
+scala> val userId = 789
+userId: Int = 789
+
+scala> val K = 10
+K: Int = 10
+
+scala> val topKRecs = model.recommendProducts(userId, K)
+topKRecs: Array[org.apache.spark.mllib.recommendation.Rating] = Array(Rating(789,23125,4.999324347042822), Rating(789,99004,3.0894407967137876), Rating(789,82543,3.043873766230799), Rating(789,51682,3.0053426310787352), Rating(789,6819,2.9969758754351083), Rating(789,153935,2.990496374145687), Rating(789,254719,2.9044268775823396), Rating(789,8642,2.8687477882195993), Rating(789,126770,2.860425654157538), Rating(789,57126,2.8570265071707404))
+
+scala> println(topKRecs.mkString("\n"))
+Rating(789,23125,4.999324347042822)
+Rating(789,99004,3.0894407967137876)
+Rating(789,82543,3.043873766230799)
+Rating(789,51682,3.0053426310787352)
+Rating(789,6819,2.9969758754351083)
+Rating(789,153935,2.990496374145687)
+Rating(789,254719,2.9044268775823396)
+Rating(789,8642,2.8687477882195993)
+Rating(789,126770,2.860425654157538)
+Rating(789,57126,2.8570265071707404)

@@ -10,7 +10,7 @@ hadoop@vspark:~/food_reviews.csv$ cat part-00000 part-00001 part-00002 part-0000
 
 ----------------------------------------
 
-val df = spark.read.format("csv").option("header","true").option("quoteAll","true").load("prod_reviews.csv")
+val df = spark.read.format("csv").option("header","true").option("quoteAll","true").load("food_reviews.csv")
 
 scala> df.printSchema()
 root
