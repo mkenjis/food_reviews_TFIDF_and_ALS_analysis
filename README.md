@@ -1,4 +1,4 @@
-# food_reviews_similarity_analysis_using_TFIDF
+# food_reviews_TFIDF_and_ALS_analysis
 food reviews similarity analysis using TFIDF
 - Source : Kaggle Dataset
 - URL : https://www.kaggle.com/snap/amazon-fine-food-reviews
