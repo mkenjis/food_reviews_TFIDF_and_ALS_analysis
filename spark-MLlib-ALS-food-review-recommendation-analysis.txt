@@ -1,3 +1,5 @@
+---- Feature extraction & Data Munging --------------
+
 val rdd = sc.textFile("food_reviews/Reviews.csv")
 
 val rdd1 = rdd.map(x => x.replaceAll("\"\"",""))
